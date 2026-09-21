@@ -46,8 +46,7 @@ def home():
   return "Bot CDMX & Paramedicos OK - Operativo"
 
 
-# 🔄 RUTA CLAVE: Este enlace será visitado automáticamente cada pocos minutos
-# para revisar las alertas de comida sin importar si el servidor se durmió.
+# 🔄 RUTA CLAVE: Este enlace será visitado automáticamente por cron-job.org
 @flask_app.route("/verificar-comidas")
 def verificar_comidas_web():
   global bot_application
@@ -59,7 +58,6 @@ def verificar_comidas_web():
   cambios_realizados = False
   alertas_enviadas_count = 0
 
-  # Usamos un bucle para procesar de forma síncrona/asíncrona segura
   loop = asyncio.new_event_loop()
   asyncio.set_event_loop(loop)
 
