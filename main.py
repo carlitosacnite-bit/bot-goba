@@ -4,7 +4,7 @@ import json
 import os
 import threading
 from zoneinfo import ZoneInfo
-from flask import Flask, send_file
+from flask import Flask, jsonify, send_file
 import pandas as pd
 from telegram.ext import ApplicationBuilder, CommandHandler
 
@@ -17,8 +17,11 @@ flask_app = Flask(__name__)
 # ID de Administrador configurado exclusivamente para ti
 ADMIN_ID = 734707763
 
-# Archivo físico para persistencia de datos (evita pérdida al dormir el servidor)
+# Archivo físico para persistencia de datos
 DB_FILE = "registros_db.json"
+
+# Referencia global para poder enviar mensajes desde Flask al bot de Telegram
+bot_application = None
 
 
 def cargar_registros():
@@ -41,6 +44,63 @@ def guardar_registro_en_disco(nuevo_registro):
 @flask_app.route("/")
 def home():
   return "Bot CDMX & Paramedicos OK - Operativo"
+
+
+# 🔄 RUTA CLAVE: Este enlace será visitado automáticamente cada pocos minutos
+# para revisar las alertas de comida sin importar si el servidor se durmió.
+@flask_app.route("/verificar-comidas")
+def verificar_comidas_web():
+  global bot_application
+  if not bot_application:
+    return jsonify({"status": "Bot no inicializado aún"}), 503
+
+  registros = cargar_registros()
+  ahora_ts = datetime.now(TZ_CDMX).timestamp()
+  cambios_realizados = False
+  alertas_enviadas_count = 0
+
+  # Usamos un bucle para procesar de forma síncrona/asíncrona segura
+  loop = asyncio.new_event_loop()
+  asyncio.set_event_loop(loop)
+
+  async def enviar_mensajes_pendientes():
+    nonlocal cambios_realizados, alertas_enviadas_count
+    for reg in registros:
+      if (
+          reg.get("Accion") == "Comida Inicia"
+          and not reg.get("AlertaEnviada", False)
+          and "TimestampFinAlerta" in reg
+      ):
+        if ahora_ts >= reg["TimestampFinAlerta"]:
+          reg["AlertaEnviada"] = True
+          cambios_realizados = True
+          alertas_enviadas_count += 1
+
+          chat_id = reg.get("ChatId")
+          nombre = reg.get("Paramedico")
+
+          if chat_id:
+            try:
+              await bot_application.bot.send_message(
+                  chat_id=chat_id,
+                  text=(
+                      f"⚠️ *¡Atención {nombre}!* Te quedan 5 minutos para que"
+                      " termine tu tiempo de comida."
+                  ),
+                  parse_mode="Markdown",
+              )
+            except Exception as e:
+              print(f"Error al enviar alerta de comida: {e}")
+
+    if cambios_realizados:
+      with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(registros, f, ensure_ascii=False, indent=4)
+
+  loop.run_until_complete(enviar_mensajes_pendientes())
+  return jsonify({
+      "status": "OK",
+      "alertas_enviadas": alertas_enviadas_count,
+  }), 200
 
 
 async def entrada(update, context):
@@ -73,19 +133,6 @@ async def salida(update, context):
   await update.message.reply_text(f"✅ Salida registrada para {nombre}: {hora_str}")
 
 
-async def tarea_alerta_comida(context, chat_id, nombre):
-  # Esperar 45 minutos (45 * 60 segundos) para avisar 5 minutos antes de los 50 min
-  await asyncio.sleep(45 * 60)
-  await context.bot.send_message(
-      chat_id=chat_id,
-      text=(
-          f"⚠️ *¡Atención {nombre}!* Te quedan 5 minutos para que termine tu"
-          " tiempo de comida."
-      ),
-      parse_mode="Markdown",
-  )
-
-
 async def comida(update, context):
   nombre = update.effective_user.first_name
   chat_id = update.effective_chat.id
@@ -93,10 +140,15 @@ async def comida(update, context):
   hora_inicio_str = inicio_comida.strftime("%H:%M hrs")
   hora_completa_str = inicio_comida.strftime("%H:%M hrs del %d/%m/%Y")
 
+  timestamp_actual = inicio_comida.timestamp()
+
   registro = {
       "Paramedico": nombre,
       "Accion": "Comida Inicia",
       "FechaHora": hora_completa_str,
+      "ChatId": chat_id,
+      "TimestampFinAlerta": timestamp_actual + (45 * 60),  # 45 minutos exactos
+      "AlertaEnviada": False,
   }
   guardar_registro_en_disco(registro)
 
@@ -106,14 +158,10 @@ async def comida(update, context):
       " de que termine."
   )
 
-  # Lanzar la tarea en segundo plano de forma asíncrona
-  asyncio.create_task(tarea_alerta_comida(context, chat_id, nombre))
-
 
 async def excel_stats(update, context):
   user_id = update.effective_user.id
 
-  # 🔒 SEGURIDAD: Verifica que sea exactamente tu ID de administrador
   if user_id != ADMIN_ID:
     await update.message.reply_text(
         "⛔ No tienes permisos para solicitar el archivo de estadísticas."
@@ -144,20 +192,23 @@ async def excel_stats(update, context):
 
 
 def run_bot():
+  global bot_application
   loop = asyncio.new_event_loop()
   asyncio.set_event_loop(loop)
 
   async def start():
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("entrada", entrada))
-    app.add_handler(CommandHandler("salida", salida))
-    app.add_handler(CommandHandler("comida", comida))
-    app.add_handler(CommandHandler("excel", excel_stats))
-    await app.bot.delete_webhook(drop_pending_updates=True)
+    global bot_application
+    bot_application = ApplicationBuilder().token(TOKEN).build()
+    bot_application.add_handler(CommandHandler("entrada", entrada))
+    bot_application.add_handler(CommandHandler("salida", salida))
+    bot_application.add_handler(CommandHandler("comida", comida))
+    bot_application.add_handler(CommandHandler("excel", excel_stats))
 
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(drop_pending_updates=True)
+    await bot_application.bot.delete_webhook(drop_pending_updates=True)
+
+    await bot_application.initialize()
+    await bot_application.start()
+    await bot_application.updater.start_polling(drop_pending_updates=True)
 
   try:
     loop.run_until_complete(start())
