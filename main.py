@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta
 import json
 import os
+import time
 import threading
 from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, send_file
@@ -191,6 +192,9 @@ async def excel_stats(update, context):
 
 def run_bot():
   global bot_application
+  # Pausa de seguridad para permitir que cualquier instancia previa cierre su conexión
+  time.sleep(3)
+
   loop = asyncio.new_event_loop()
   asyncio.set_event_loop(loop)
 
