@@ -1,4 +1,4 @@
-import os, json, threading, asyncio
+import os, threading, asyncio
 from datetime import datetime, timedelta
 from flask import Flask
 from telegram.ext import ApplicationBuilder, CommandHandler
@@ -8,7 +8,7 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "Bot GOVA CDMX Activo - 20:xx"
+    return "Bot CDMX OK - 21:xx"
 
 async def entrada(update, context):
     ahora = datetime.utcnow() - timedelta(hours=6)
@@ -23,10 +23,13 @@ async def salida(update, context):
 def run_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("entrada", entrada))
-    app.add_handler(CommandHandler("salida", salida))
-    app.run_polling(stop_signals=None, drop_pending_updates=True)
+    async def start():
+        app = ApplicationBuilder().token(TOKEN).build()
+        app.add_handler(CommandHandler("entrada", entrada))
+        app.add_handler(CommandHandler("salida", salida))
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        await app.run_polling(stop_signals=None, drop_pending_updates=True)
+    loop.run_until_complete(start())
 
 threading.Thread(target=run_bot, daemon=True).start()
 
