@@ -5,9 +5,10 @@ import os
 import time
 import threading
 from zoneinfo import ZoneInfo
-from flask import Flask, jsonify, send_file
+from flask import Flask, jsonify
 import pandas as pd
-from telegram.ext import ApplicationBuilder, CommandHandler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler
 
 # Configuración de la zona horaria oficial para CDMX
 TZ_CDMX = ZoneInfo("America/Mexico_City")
@@ -47,7 +48,7 @@ def home():
   return "Bot CDMX & Paramedicos OK - Operativo"
 
 
-# 🔄 RUTA CLAVE: Este enlace será visitado automáticamente por cron-job.org
+# 🔄 RUTA CLAVE: Este enlace es visitado por cron-job.org cada 5 minutos
 @flask_app.route("/verificar-comidas")
 def verificar_comidas_web():
   global bot_application
@@ -102,10 +103,30 @@ def verificar_comidas_web():
   }), 200
 
 
-async def entrada(update, context):
+async def start(update, context):
+  nombre = update.effective_user.first_name
+  # Creamos los botones interactivos
+  teclado = [
+      [
+          InlineKeyboardButton("🟢 Registrar Entrada", callback_data="btn_entrada"),
+          InlineKeyboardButton("🔴 Registrar Salida", callback_data="btn_salida")
+      ],
+      [
+          InlineKeyboardButton("🍽️ Iniciar Comida (50 min)", callback_data="btn_comida")
+      ]
+  ]
+  reply_markup = InlineKeyboardMarkup(teclado)
+  
+  await update.message.reply_text(
+      f"¡Bienvenido, {nombre}!\nSelecciona una opción para continuar tu registro en tiempo real:",
+      reply_markup=reply_markup
+  )
+
+
+async def procesar_entrada(update_or_query, user_obj, chat_id):
   ahora = datetime.now(TZ_CDMX)
   hora_str = ahora.strftime("%H:%M hrs del %d/%m/%Y")
-  nombre = update.effective_user.first_name
+  nombre = user_obj.first_name
 
   registro = {
       "Paramedico": nombre,
@@ -113,14 +134,18 @@ async def entrada(update, context):
       "FechaHora": hora_str,
   }
   guardar_registro_en_disco(registro)
+  texto = f"✅ Entrada registrada para {nombre}: {hora_str}"
+  
+  if hasattr(update_or_query, "message") and update_or_query.message:
+    await update_or_query.message.reply_text(texto)
+  else:
+    await update_or_query.edit_message_text(texto)
 
-  await update.message.reply_text(f"✅ Entrada registrada para {nombre}: {hora_str}")
 
-
-async def salida(update, context):
+async def procesar_salida(update_or_query, user_obj, chat_id):
   ahora = datetime.now(TZ_CDMX)
   hora_str = ahora.strftime("%H:%M hrs del %d/%m/%Y")
-  nombre = update.effective_user.first_name
+  nombre = user_obj.first_name
 
   registro = {
       "Paramedico": nombre,
@@ -128,13 +153,16 @@ async def salida(update, context):
       "FechaHora": hora_str,
   }
   guardar_registro_en_disco(registro)
+  texto = f"✅ Salida registrada para {nombre}: {hora_str}"
 
-  await update.message.reply_text(f"✅ Salida registrada para {nombre}: {hora_str}")
+  if hasattr(update_or_query, "message") and update_or_query.message:
+    await update_or_query.message.reply_text(texto)
+  else:
+    await update_or_query.edit_message_text(texto)
 
 
-async def comida(update, context):
-  nombre = update.effective_user.first_name
-  chat_id = update.effective_chat.id
+async def procesar_comida(update_or_query, user_obj, chat_id):
+  nombre = user_obj.first_name
   inicio_comida = datetime.now(TZ_CDMX)
   hora_inicio_str = inicio_comida.strftime("%H:%M hrs")
   hora_completa_str = inicio_comida.strftime("%H:%M hrs del %d/%m/%Y")
@@ -150,12 +178,44 @@ async def comida(update, context):
       "AlertaEnviada": False,
   }
   guardar_registro_en_disco(registro)
-
-  await update.message.reply_text(
+  texto = (
       f"🍽️ ¡Buen provecho, {nombre}! Tu hora de comida inició a las"
       f" {hora_inicio_str}. Duración: 50 minutos. Te avisaré 5 minutos antes"
       " de que termine."
   )
+
+  if hasattr(update_or_query, "message") and update_or_query.message:
+    await update_or_query.message.reply_text(texto)
+  else:
+    await update_or_query.edit_message_text(texto)
+
+
+# Handlers para comandos de texto tradicionales
+async def entrada(update, context):
+  await procesar_entrada(update, update.effective_user, update.effective_chat.id)
+
+async def salida(update, context):
+  await procesar_salida(update, update.effective_user, update.effective_chat.id)
+
+async def comida(update, context):
+  await procesar_comida(update, update.effective_user, update.effective_chat.id)
+
+
+# Handler para cuando presionan los botones interactivos
+async def button_click(update, context):
+  query = update.callback_query
+  await query.answer()
+  
+  user = query.from_user
+  chat_id = query.message.chat_id
+  data = query.data
+
+  if data == "btn_entrada":
+    await procesar_entrada(query, user, chat_id)
+  elif data == "btn_salida":
+    await procesar_salida(query, user, chat_id)
+  elif data == "btn_comida":
+    await procesar_comida(query, user, chat_id)
 
 
 async def excel_stats(update, context):
@@ -192,19 +252,24 @@ async def excel_stats(update, context):
 
 def run_bot():
   global bot_application
-  # Pausa de seguridad para permitir que cualquier instancia previa cierre su conexión
-  time.sleep(3)
+  time.sleep(3)  # Pausa de seguridad para evitar conflicto de instancias
 
   loop = asyncio.new_event_loop()
   asyncio.set_event_loop(loop)
 
-  async def start():
+  async def init_and_run():
     global bot_application
     bot_application = ApplicationBuilder().token(TOKEN).build()
+    
+    # Comandos
+    bot_application.add_handler(CommandHandler("start", start))
     bot_application.add_handler(CommandHandler("entrada", entrada))
     bot_application.add_handler(CommandHandler("salida", salida))
     bot_application.add_handler(CommandHandler("comida", comida))
     bot_application.add_handler(CommandHandler("excel", excel_stats))
+    
+    # Manejador de botones interactivos
+    bot_application.add_handler(CallbackQueryHandler(button_click))
 
     await bot_application.bot.delete_webhook(drop_pending_updates=True)
 
@@ -213,7 +278,7 @@ def run_bot():
     await bot_application.updater.start_polling(drop_pending_updates=True)
 
   try:
-    loop.run_until_complete(start())
+    loop.run_until_complete(init_and_run())
     loop.run_forever()
   except Exception as e:
     print(f"Error en el hilo del bot: {e}")
