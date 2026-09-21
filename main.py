@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
+import json
 import os
 import threading
 from zoneinfo import ZoneInfo
@@ -17,8 +18,26 @@ flask_app = Flask(__name__)
 # ID de Administrador configurado exclusivamente para ti
 ADMIN_ID = 734707763
 
-# Lista en memoria para guardar los registros operativos
-registros_operativos = []
+# Archivo físico para persistencia de datos (evita que se borren al dormir el servidor)
+DB_FILE = "registros_db.json"
+
+
+def cargar_registros():
+  if os.path.exists(DB_FILE):
+    try:
+      with open(DB_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+    except Exception:
+      return []
+  return []
+
+
+def guardar_registro_en_disco(nuevo_registro):
+  registros = cargar_registros()
+  registros.append(nuevo_registro)
+  with open(DB_FILE, "w", encoding="utf-8") as f:
+    json.dump(registros, f, ensure_ascii=False, indent=4)
+
 
 # Inicializar el planificador automático para las alertas
 scheduler = BackgroundScheduler()
@@ -35,11 +54,12 @@ async def entrada(update, context):
   hora_str = ahora.strftime("%H:%M hrs del %d/%m/%Y")
   nombre = update.effective_user.first_name
 
-  registros_operativos.append({
+  registro = {
       "Paramedico": nombre,
       "Accion": "Entrada",
       "FechaHora": hora_str,
-  })
+  }
+  guardar_registro_en_disco(registro)
 
   await update.message.reply_text(f"✅ Entrada registrada para {nombre}: {hora_str}")
 
@@ -49,11 +69,12 @@ async def salida(update, context):
   hora_str = ahora.strftime("%H:%M hrs del %d/%m/%Y")
   nombre = update.effective_user.first_name
 
-  registros_operativos.append({
+  registro = {
       "Paramedico": nombre,
       "Accion": "Salida",
       "FechaHora": hora_str,
-  })
+  }
+  guardar_registro_en_disco(registro)
 
   await update.message.reply_text(f"✅ Salida registrada para {nombre}: {hora_str}")
 
@@ -63,12 +84,14 @@ async def comida(update, context):
   chat_id = update.effective_chat.id
   inicio_comida = datetime.now(TZ_CDMX)
   hora_inicio_str = inicio_comida.strftime("%H:%M hrs")
+  hora_completa_str = inicio_comida.strftime("%H:%M hrs del %d/%m/%Y")
 
-  registros_operativos.append({
+  registro = {
       "Paramedico": nombre,
       "Accion": "Comida Inicia",
-      "FechaHora": inicio_comida.strftime("%H:%M hrs del %d/%m/%Y"),
-  })
+      "FechaHora": hora_completa_str,
+  }
+  guardar_registro_en_disco(registro)
 
   await update.message.reply_text(
       f"🍽️ ¡Buen provecho, {nombre}! Tu hora de comida inició a las"
@@ -109,9 +132,11 @@ async def excel_stats(update, context):
     )
     return
 
+  registros_operativos = cargar_registros()
+
   if not registros_operativos:
     await update.message.reply_text(
-        "📂 Aún no hay registros guardados en esta sesión."
+        "📂 Aún no hay registros guardados en el sistema."
     )
     return
 
