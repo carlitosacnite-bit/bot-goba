@@ -103,17 +103,26 @@ def verificar_comidas_web():
   }), 200
 
 
+# Definición de los teclados dinámicos
+TECLADO_INICIAL = [
+    [KeyboardButton("🟢 Registrar Entrada")]
+]
+
+TECLADO_EN_TURNO = [
+    [KeyboardButton("🔴 Registrar Salida"), KeyboardButton("🍽️ Iniciar Comida (50 min)")]
+]
+
+TECLADO_COMIDA = [
+    [KeyboardButton("🔴 Registrar Salida")]
+]
+
+
 async def start(update, context):
   nombre = update.effective_user.first_name
-  # Creamos el teclado fijo inferior
-  teclado = [
-      [KeyboardButton("🟢 Registrar Entrada"), KeyboardButton("🔴 Registrar Salida")],
-      [KeyboardButton("🍽️ Iniciar Comida (50 min)")]
-  ]
-  reply_markup = ReplyKeyboardMarkup(teclado, resize_keyboard=True)
+  reply_markup = ReplyKeyboardMarkup(TECLADO_INICIAL, resize_keyboard=True)
   
   await update.message.reply_text(
-      f"¡Bienvenido, {nombre}!\nUsa los botones fijos en la parte inferior para realizar tus registros:",
+      f"¡Bienvenido, {nombre}!\nInicia tu registro presionando el botón inferior:",
       reply_markup=reply_markup
   )
 
@@ -129,8 +138,10 @@ async def procesar_entrada(update, user_obj):
       "FechaHora": hora_str,
   }
   guardar_registro_en_disco(registro)
+  
   texto = f"✅ Entrada registrada para {nombre}: {hora_str}"
-  await update.message.reply_text(texto)
+  reply_markup = ReplyKeyboardMarkup(TECLADO_EN_TURNO, resize_keyboard=True)
+  await update.message.reply_text(texto, reply_markup=reply_markup)
 
 
 async def procesar_salida(update, user_obj):
@@ -144,8 +155,10 @@ async def procesar_salida(update, user_obj):
       "FechaHora": hora_str,
   }
   guardar_registro_en_disco(registro)
-  texto = f"✅ Salida registrada para {nombre}: {hora_str}"
-  await update.message.reply_text(texto)
+  
+  texto = f"✅ Salida registrada para {nombre}: {hora_str}. ¡Buen descanso!"
+  reply_markup = ReplyKeyboardMarkup(TECLADO_INICIAL, resize_keyboard=True)
+  await update.message.reply_text(texto, reply_markup=reply_markup)
 
 
 async def procesar_comida(update, user_obj):
@@ -166,12 +179,14 @@ async def procesar_comida(update, user_obj):
       "AlertaEnviada": False,
   }
   guardar_registro_en_disco(registro)
+  
   texto = (
       f"🍽️ ¡Buen provecho, {nombre}! Tu hora de comida inició a las"
       f" {hora_inicio_str}. Duración: 50 minutos. Te avisaré 5 minutos antes"
       " de que termine."
   )
-  await update.message.reply_text(texto)
+  reply_markup = ReplyKeyboardMarkup(TECLADO_COMIDA, resize_keyboard=True)
+  await update.message.reply_text(texto, reply_markup=reply_markup)
 
 
 # Handlers para comandos de texto tradicionales
@@ -185,7 +200,7 @@ async def comida(update, context):
   await procesar_comida(update, update.effective_user)
 
 
-# Manejador para los clics en los botones fijos inferiores
+# Manejador para los clics en los botones fijos inferiores dinámicos
 async def manejar_botones_texto(update, context):
   texto = update.message.text
   user = update.effective_user
