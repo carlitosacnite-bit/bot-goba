@@ -6,7 +6,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 import asyncio
 
 TOKEN = os.environ.get("BOT_TOKEN")
-
 flask_app = Flask(__name__)
 @flask_app.route('/')
 def home():
@@ -16,34 +15,30 @@ entradas = {}
 comidas = {}
 
 async def start(update, context):
-    await update.message.reply_text("Bot Activo ✅ /entrada /comida /fincomida /reporte")
-
+    await update.message.reply_text("Bot Activo /entrada /comida /fincomida /reporte")
 async def entrada(update, context):
     user = update.effective_user.first_name
     hora = datetime.now().strftime("%H:%M")
     entradas[user] = hora
-    await update.message.reply_text(f"Entrada {user} {hora} ✅")
-
+    await update.message.reply_text(f"Entrada {user} {hora}")
 async def comida(update, context):
     user = update.effective_user.first_name
     comidas[user] = True
-    await update.message.reply_text(f"Comida {user} 45 min 🍽️")
+    await update.message.reply_text(f"Comida {user} 45 min")
     await asyncio.sleep(2100)
     if user in comidas:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Quedan 10 min {user} ⏰")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Quedan 10 min {user}")
     await asyncio.sleep(600)
     if user in comidas:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Se acabo {user} 🚨")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Se acabo {user}")
         del comidas[user]
-
 async def fincomida(update, context):
     user = update.effective_user.first_name
     if user in comidas:
         del comidas[user]
-        await update.message.reply_text(f"Fin comida {user} ✅")
+        await update.message.reply_text(f"Fin comida {user}")
     else:
         await update.message.reply_text("No estabas en comida")
-
 async def reporte(update, context):
     texto = "REPORTE GOVA\n"
     for u,h in entradas.items():
