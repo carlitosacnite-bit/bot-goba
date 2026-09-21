@@ -19,20 +19,19 @@ def home():
 
 
 async def entrada(update, context):
-  # Obtiene la hora exacta con la zona horaria de CDMX de forma automática
   ahora = datetime.now(TZ_CDMX)
   hora = ahora.strftime("%H:%M hrs del %d/%m/%Y")
   await update.message.reply_text(f"✅ Entrada registrada: {hora}")
 
 
 async def salida(update, context):
-  # Obtiene la hora exacta con la zona horaria de CDMX de forma automática
   ahora = datetime.now(TZ_CDMX)
   hora = ahora.strftime("%H:%M hrs del %d/%m/%Y")
   await update.message.reply_text(f"✅ Salida registrada: {hora}")
 
 
 def run_bot():
+  # Creamos un nuevo bucle de eventos limpio para el hilo
   loop = asyncio.new_event_loop()
   asyncio.set_event_loop(loop)
 
@@ -41,12 +40,21 @@ def run_bot():
     app.add_handler(CommandHandler("entrada", entrada))
     app.add_handler(CommandHandler("salida", salida))
     await app.bot.delete_webhook(drop_pending_updates=True)
-    await app.run_polling(stop_signals=None, drop_pending_updates=True)
 
-  loop.run_until_complete(start())
+    # Inicializamos y arrancamos el bot de manera compatible con hilos
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(drop_pending_updates=True)
+
+  try:
+    loop.run_until_complete(start())
+    # Mantenemos el bucle vivo
+    loop.run_forever()
+  except Exception as e:
+    print(f"Error en el hilo del bot: {e}")
 
 
-# Ejecutar el bot en un hilo secundario para que conviva con Flask
+# Lanzar el bot en segundo plano junto con Flask
 threading.Thread(target=run_bot, daemon=True).start()
 
 if __name__ == "__main__":
