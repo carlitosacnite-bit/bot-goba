@@ -74,7 +74,7 @@ async def salida(update, context):
 
 
 async def tarea_alerta_comida(context, chat_id, nombre):
-  # Esperar 45 minutos (45 * 60 segundos) en segundo plano de forma segura
+  # Esperar 45 minutos (45 * 60 segundos) para avisar 5 minutos antes de los 50 min
   await asyncio.sleep(45 * 60)
   await context.bot.send_message(
       chat_id=chat_id,
@@ -106,7 +106,7 @@ async def comida(update, context):
       " de que termine."
   )
 
-  # Programar la alerta de forma asíncrona sin librerías externas
+  # Lanzar la tarea en segundo plano de forma asíncrona
   asyncio.create_task(tarea_alerta_comida(context, chat_id, nombre))
 
 
