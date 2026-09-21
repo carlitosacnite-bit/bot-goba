@@ -7,8 +7,8 @@ import threading
 from zoneinfo import ZoneInfo
 from flask import Flask, jsonify
 import pandas as pd
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler
+from telegram import ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
 # Configuración de la zona horaria oficial para CDMX
 TZ_CDMX = ZoneInfo("America/Mexico_City")
@@ -105,25 +105,20 @@ def verificar_comidas_web():
 
 async def start(update, context):
   nombre = update.effective_user.first_name
-  # Creamos los botones interactivos
+  # Creamos el teclado fijo inferior
   teclado = [
-      [
-          InlineKeyboardButton("🟢 Registrar Entrada", callback_data="btn_entrada"),
-          InlineKeyboardButton("🔴 Registrar Salida", callback_data="btn_salida")
-      ],
-      [
-          InlineKeyboardButton("🍽️ Iniciar Comida (50 min)", callback_data="btn_comida")
-      ]
+      [KeyboardButton("🟢 Registrar Entrada"), KeyboardButton("🔴 Registrar Salida")],
+      [KeyboardButton("🍽️ Iniciar Comida (50 min)")]
   ]
-  reply_markup = InlineKeyboardMarkup(teclado)
+  reply_markup = ReplyKeyboardMarkup(teclado, resize_keyboard=True)
   
   await update.message.reply_text(
-      f"¡Bienvenido, {nombre}!\nSelecciona una opción para continuar tu registro en tiempo real:",
+      f"¡Bienvenido, {nombre}!\nUsa los botones fijos en la parte inferior para realizar tus registros:",
       reply_markup=reply_markup
   )
 
 
-async def procesar_entrada(update_or_query, user_obj, chat_id):
+async def procesar_entrada(update, user_obj):
   ahora = datetime.now(TZ_CDMX)
   hora_str = ahora.strftime("%H:%M hrs del %d/%m/%Y")
   nombre = user_obj.first_name
@@ -135,14 +130,10 @@ async def procesar_entrada(update_or_query, user_obj, chat_id):
   }
   guardar_registro_en_disco(registro)
   texto = f"✅ Entrada registrada para {nombre}: {hora_str}"
-  
-  if hasattr(update_or_query, "message") and update_or_query.message:
-    await update_or_query.message.reply_text(texto)
-  else:
-    await update_or_query.edit_message_text(texto)
+  await update.message.reply_text(texto)
 
 
-async def procesar_salida(update_or_query, user_obj, chat_id):
+async def procesar_salida(update, user_obj):
   ahora = datetime.now(TZ_CDMX)
   hora_str = ahora.strftime("%H:%M hrs del %d/%m/%Y")
   nombre = user_obj.first_name
@@ -154,15 +145,12 @@ async def procesar_salida(update_or_query, user_obj, chat_id):
   }
   guardar_registro_en_disco(registro)
   texto = f"✅ Salida registrada para {nombre}: {hora_str}"
-
-  if hasattr(update_or_query, "message") and update_or_query.message:
-    await update_or_query.message.reply_text(texto)
-  else:
-    await update_or_query.edit_message_text(texto)
+  await update.message.reply_text(texto)
 
 
-async def procesar_comida(update_or_query, user_obj, chat_id):
+async def procesar_comida(update, user_obj):
   nombre = user_obj.first_name
+  chat_id = update.effective_chat.id
   inicio_comida = datetime.now(TZ_CDMX)
   hora_inicio_str = inicio_comida.strftime("%H:%M hrs")
   hora_completa_str = inicio_comida.strftime("%H:%M hrs del %d/%m/%Y")
@@ -183,39 +171,31 @@ async def procesar_comida(update_or_query, user_obj, chat_id):
       f" {hora_inicio_str}. Duración: 50 minutos. Te avisaré 5 minutos antes"
       " de que termine."
   )
-
-  if hasattr(update_or_query, "message") and update_or_query.message:
-    await update_or_query.message.reply_text(texto)
-  else:
-    await update_or_query.edit_message_text(texto)
+  await update.message.reply_text(texto)
 
 
 # Handlers para comandos de texto tradicionales
 async def entrada(update, context):
-  await procesar_entrada(update, update.effective_user, update.effective_chat.id)
+  await procesar_entrada(update, update.effective_user)
 
 async def salida(update, context):
-  await procesar_salida(update, update.effective_user, update.effective_chat.id)
+  await procesar_salida(update, update.effective_user)
 
 async def comida(update, context):
-  await procesar_comida(update, update.effective_user, update.effective_chat.id)
+  await procesar_comida(update, update.effective_user)
 
 
-# Handler para cuando presionan los botones interactivos
-async def button_click(update, context):
-  query = update.callback_query
-  await query.answer()
-  
-  user = query.from_user
-  chat_id = query.message.chat_id
-  data = query.data
+# Manejador para los clics en los botones fijos inferiores
+async def manejar_botones_texto(update, context):
+  texto = update.message.text
+  user = update.effective_user
 
-  if data == "btn_entrada":
-    await procesar_entrada(query, user, chat_id)
-  elif data == "btn_salida":
-    await procesar_salida(query, user, chat_id)
-  elif data == "btn_comida":
-    await procesar_comida(query, user, chat_id)
+  if texto == "🟢 Registrar Entrada":
+    await procesar_entrada(update, user)
+  elif texto == "🔴 Registrar Salida":
+    await procesar_salida(update, user)
+  elif texto == "🍽️ Iniciar Comida (50 min)":
+    await procesar_comida(update, user)
 
 
 async def excel_stats(update, context):
@@ -268,8 +248,8 @@ def run_bot():
     bot_application.add_handler(CommandHandler("comida", comida))
     bot_application.add_handler(CommandHandler("excel", excel_stats))
     
-    # Manejador de botones interactivos
-    bot_application.add_handler(CallbackQueryHandler(button_click))
+    # Manejador de texto para los botones fijos inferiores
+    bot_application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_botones_texto))
 
     await bot_application.bot.delete_webhook(drop_pending_updates=True)
 
