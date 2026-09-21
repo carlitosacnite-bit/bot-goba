@@ -1,11 +1,9 @@
 import os, json, threading, asyncio
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 from flask import Flask
 from telegram.ext import ApplicationBuilder, CommandHandler
 
 TOKEN = os.environ.get("BOT_TOKEN")
-ZONA = ZoneInfo("America/Mexico_City")
 
 flask_app = Flask(__name__)
 @flask_app.route('/')
@@ -31,10 +29,11 @@ entradas = cargar()
 comidas = {}
 
 def ahora():
-    return datetime.now(ZONA).strftime("%H:%M")
+    # CDMX es UTC-6
+    return (datetime.utcnow() - timedelta(hours=6)).strftime("%H:%M")
 
 def hoy():
-    return datetime.now(ZONA).strftime("%d/%m/%Y")
+    return (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y")
 
 async def start(update, context):
     await update.message.reply_text("Bot GOVA CDMX\n/entrada /comida /fincomida /reporte")
