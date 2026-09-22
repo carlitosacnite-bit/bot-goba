@@ -66,31 +66,49 @@ def verificar_comidas_web():
   async def enviar_mensajes_pendientes():
     nonlocal cambios_realizados, alertas_enviadas_count
     for reg in registros:
-      if (
-          reg.get("Accion") == "Comida Inicia"
-          and not reg.get("AlertaEnviada", False)
-          and "TimestampFinAlerta" in reg
-      ):
-        if ahora_ts >= reg["TimestampFinAlerta"]:
-          reg["AlertaEnviada"] = True
-          cambios_realizados = True
-          alertas_enviadas_count += 1
+      if reg.get("Accion") == "Comida Inicia":
+        chat_id = reg.get("ChatId")
+        nombre = reg.get("Paramedico")
 
-          chat_id = reg.get("ChatId")
-          nombre = reg.get("Paramedico")
+        # 1. Alerta de 5 minutos antes (Minuto 45)
+        if not reg.get("AlertaEnviada", False) and "TimestampFinAlerta" in reg:
+          if ahora_ts >= reg["TimestampFinAlerta"]:
+            reg["AlertaEnviada"] = True
+            cambios_realizados = True
+            alertas_enviadas_count += 1
 
-          if chat_id:
-            try:
-              await bot_application.bot.send_message(
-                  chat_id=chat_id,
-                  text=(
-                      f"⚠️ *¡Atención {nombre}!* Te quedan 5 minutos para que"
-                      " termine tu tiempo de comida."
-                  ),
-                  parse_mode="Markdown",
-              )
-            except Exception as e:
-              print(f"Error al enviar alerta de comida: {e}")
+            if chat_id:
+              try:
+                await bot_application.bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        f"⚠️ *¡Atención {nombre}!* Te quedan 5 minutos para que"
+                        " termine tu tiempo de comida."
+                    ),
+                    parse_mode="Markdown",
+                )
+              except Exception as e:
+                print(f"Error al enviar alerta previa de comida: {e}")
+
+        # 2. Alerta de tiempo cumplido (Minuto 50)
+        if not reg.get("AlertaFinEnviada", False) and "TimestampFinComida" in reg:
+          if ahora_ts >= reg["TimestampFinComida"]:
+            reg["AlertaFinEnviada"] = True
+            cambios_realizados = True
+            alertas_enviadas_count += 1
+
+            if chat_id:
+              try:
+                await bot_application.bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        f"🚨 *¡Tiempo de comida finalizado, {nombre}!* "
+                        "Tus pacientes esperan, a por ello."
+                    ),
+                    parse_mode="Markdown",
+                )
+              except Exception as e:
+                print(f"Error al enviar alerta final de comida: {e}")
 
     if cambios_realizados:
       with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -175,15 +193,17 @@ async def procesar_comida(update, user_obj):
       "Accion": "Comida Inicia",
       "FechaHora": hora_completa_str,
       "ChatId": chat_id,
-      "TimestampFinAlerta": timestamp_actual + (45 * 60),  # 45 minutos exactos
+      "TimestampFinAlerta": timestamp_actual + (45 * 60),  # Minuto 45 (Aviso previo)
+      "TimestampFinComida": timestamp_actual + (50 * 60),  # Minuto 50 (Fin exacto)
       "AlertaEnviada": False,
+      "AlertaFinEnviada": False,
   }
   guardar_registro_en_disco(registro)
   
   texto = (
       f"🍽️ ¡Buen provecho, {nombre}! Tu hora de comida inició a las"
       f" {hora_inicio_str}. Duración: 50 minutos. Te avisaré 5 minutos antes"
-      " de que termine."
+      " y al concluir tu tiempo."
   )
   reply_markup = ReplyKeyboardMarkup(TECLADO_COMIDA, resize_keyboard=True)
   await update.message.reply_text(texto, reply_markup=reply_markup)
